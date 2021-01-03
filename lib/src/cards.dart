@@ -7,6 +7,7 @@ import 'swip_info.dart';
 
 typedef ForwardCallback(int index, SwipInfo info);
 typedef BackCallback(int index);
+typedef UpdateCallback(SwipDirection direction, bool isUpdating);
 typedef EndCallback();
 
 /// Card controller
@@ -32,7 +33,7 @@ class TCardController {
   reset() {
     _state._reset();
   }
-
+  
   void dispose() {
     _state = null;
   }
@@ -58,20 +59,15 @@ class TCard extends StatefulWidget {
   /// 卡片控制器
   final TCardController controller;
 
-  /// How quick should it be slided? less is slower. 10 is a bit slow. 20 is a quick enough.
-  final double slideSpeed;
-
-  /// How long does it have to wait until the next slide is sliable? less is quicker. 100 is fast enough. 500 is a bit slow.
-  final int delaySlideFor;
+  final UpdateCallback onUpdate;
 
   const TCard({
     @required this.cards,
     this.controller,
     this.onForward,
     this.onBack,
+    this.onUpdate,
     this.onEnd,
-    this.slideSpeed = 20,
-    this.delaySlideFor = 100,
     this.size = const Size(380, 400),
   })  : assert(cards != null),
         assert(cards.length > 0);
@@ -250,7 +246,7 @@ class _TCardState extends State<TCard> with TickerProviderStateMixin {
     final double unitsPerSecondY = pixelsPerSecond.dy / size.height;
     final unitsPerSecond = Offset(unitsPerSecondX, unitsPerSecondY);
     final unitVelocity = unitsPerSecond.distance;
-    const spring = SpringDescription(mass: 30.0, stiffness: 1.0, damping: 1.0);
+    const spring = SpringDescription(mass: 30, stiffness: 1, damping: 1);
     final simulation = SpringSimulation(spring, 0, 1, -unitVelocity);
 
     _reboundController.animateWith(simulation);
@@ -338,19 +334,30 @@ class _TCardState extends State<TCard> with TickerProviderStateMixin {
   // 更新最前面卡片的位置
   void _updateFrontCardAlignment(DragUpdateDetails details, Size size) {
     // 移动的速度
-    // final double speed = 10.0;
+    final double speed = 10.0;
 
     _frontCardAlignment += Alignment(
-      details.delta.dx / (size.width / 2) * widget.slideSpeed,
-      details.delta.dy / (size.height / 2) * widget.slideSpeed,
+      details.delta.dx / (size.width / 2) * speed,
+      details.delta.dy / (size.height / 2) * speed,
     );
     // 设置最前面卡片的旋转角度
     _frontCardRotation = _frontCardAlignment.x;
+    _isBeingUpdated();
+
     setState(() {});
+  }
+
+  void _isBeingUpdated([bool onHold = true]) {
+    final double limit = 7.0;
+    final bool isSwipLeft = _frontCardAlignment.x < -limit;
+    final bool isSwipRight = _frontCardAlignment.x > limit;
+    final SwipDirection direction = isSwipLeft ? SwipDirection.Left : SwipDirection.Right; 
+    widget.onUpdate?.call(direction, (isSwipLeft || isSwipRight) && onHold);
   }
 
   // 判断是否进行动画
   void _judgeRunAnimation(DragEndDetails details, Size size) {
+    _isBeingUpdated(false);
     // 卡片横轴距离限制
     final double limit = 10.0;
     final bool isSwipLeft = _frontCardAlignment.x < -limit;
@@ -383,7 +390,7 @@ class _TCardState extends State<TCard> with TickerProviderStateMixin {
 
     // 初始化向前的动画控制器
     _cardChangeController = AnimationController(
-      duration: Duration(milliseconds: widget.delaySlideFor),
+      duration: Duration(milliseconds: 1000),
       vsync: this,
     )
       ..addListener(() => setState(() {}))
